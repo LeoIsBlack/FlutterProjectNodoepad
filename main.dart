@@ -1,417 +1,215 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'screens/notes_screen.dart';
+import 'screens/settings_screen.dart';
+import 'screens/profile_screen.dart';
+import 'l10n/app_localizations.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'models/note.dart';
+import 'services/firestore_service.dart';
 
-void main() {
-  runApp(MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+
+  Map<String, dynamic>? settings;
+  try {
+    settings = await FirestoreService().loadSettings().timeout(const Duration(seconds: 5));
+  } catch (e) {
+    print('Ошибка загрузки настроек из Firestore: $e');
+    settings = null;
+  }
+
+  final isDark = (settings?['themeMode'] ?? 'ThemeMode.light') == 'ThemeMode.dark';
+  final languageCode = settings?['languageCode'] ?? 'en';
+
+  runApp(
+    MyApp(
+      initialThemeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+      initialLocale: Locale(languageCode),
+    ),
+  );
 }
 
 class MyApp extends StatefulWidget {
+  final ThemeMode initialThemeMode;
+  final Locale initialLocale;
+
+  const MyApp({
+    super.key,
+    required this.initialThemeMode,
+    required this.initialLocale,
+  });
+
   @override
-  _MyAppState createState() => _MyAppState();
+  State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
-  Locale _locale = const Locale('en', 'US');
-  ThemeMode _themeMode = ThemeMode.system;
+  late ThemeMode _themeMode;
+  late Locale _locale;
+  Color _themeColor = Colors.deepPurple;
 
-  void _toggleTheme() {
+  @override
+  void initState() {
+    super.initState();
+    _themeMode = widget.initialThemeMode;
+    _locale = widget.initialLocale;
+  }
+
+  void _setThemeMode(ThemeMode mode) async {
+    final settings = await FirestoreService().loadSettings();
+    await FirestoreService().saveSettings(settings?['languageCode'] ?? 'en', mode.toString());
     setState(() {
-      _themeMode =
-          _themeMode == ThemeMode.system
-              ? ThemeMode.light
-              : _themeMode == ThemeMode.light
-              ? ThemeMode.dark
-              : ThemeMode.system;
+      _themeMode = mode;
     });
   }
 
-  void _changeLanguage(Locale locale) {
+  void _setLocale(Locale locale) async {
+    final settings = await FirestoreService().loadSettings();
+    await FirestoreService().saveSettings(locale.languageCode, settings?['themeMode'] ?? 'ThemeMode.light');
     setState(() {
       _locale = locale;
+    });
+  }
+
+  void _setThemeColor(Color color) {
+    setState(() {
+      _themeColor = color;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Notes App',
+      onGenerateTitle: (context) => AppLocalizations.of(context)?.appTitle ?? 'Notes',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: _themeColor),
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData.dark(useMaterial3: true),
       themeMode: _themeMode,
       locale: _locale,
-      supportedLocales: const [
-        Locale('en', 'US'),
-        Locale('ru', 'RU'),
-        Locale('kk', 'KZ'),
-      ],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      localeResolutionCallback: (locale, supportedLocales) {
-        if (locale == null) return const Locale('kk');
-        return supportedLocales.firstWhere(
-          (supportedLocale) =>
-              supportedLocale.languageCode == locale.languageCode,
-          orElse: () => const Locale('kk'),
-        );
-      },
-      theme: ThemeData(
-        colorScheme: ColorScheme.light(
-          primary: Colors.indigo,
-          secondary: Colors.pinkAccent,
-        ),
-        cardTheme: CardTheme(
-          color: Colors.white,
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.all(8),
-        ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
-          backgroundColor: Colors.indigo,
-          foregroundColor: Colors.white,
-          elevation: 4,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey[300]!),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey[300]!),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: Colors.indigo, width: 2),
-          ),
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 14,
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.indigo,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-            elevation: 2,
-          ),
-        ),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      home: MainScreen(
+        themeMode: _themeMode,
+        locale: _locale,
+        themeColor: _themeColor,
+        onThemeChanged: _setThemeMode,
+        onLocaleChanged: _setLocale,
+        onThemeColorChanged: _setThemeColor,
       ),
-      darkTheme: ThemeData.dark().copyWith(
-        colorScheme: ColorScheme.dark(
-          primary: Colors.indigo,
-          secondary: Colors.indigoAccent,
-        ),
-        cardTheme: CardTheme(color: Colors.indigo[900]),
-      ),
-      home: HomePage(
-        onThemeToggle: _toggleTheme,
-        onLanguageChange: _changeLanguage,
-      ),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class HomePage extends StatefulWidget {
-  final VoidCallback onThemeToggle;
-  final Function(Locale) onLanguageChange;
+class MainScreen extends StatefulWidget {
+  final ThemeMode themeMode;
+  final Locale locale;
+  final Color themeColor;
+  final void Function(ThemeMode) onThemeChanged;
+  final void Function(Locale) onLocaleChanged;
+  final void Function(Color) onThemeColorChanged;
 
-  const HomePage({
-    required this.onThemeToggle,
-    required this.onLanguageChange,
-    Key? key,
-  }) : super(key: key);
+  const MainScreen({
+    super.key,
+    required this.themeMode,
+    required this.locale,
+    required this.themeColor,
+    required this.onThemeChanged,
+    required this.onLocaleChanged,
+    required this.onThemeColorChanged,
+  });
 
   @override
-  _HomePageState createState() => _HomePageState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _HomePageState extends State<HomePage> {
-  List<String> _notes = [];
-  bool _showWelcomeMessage = true;
-  TextEditingController _noteController = TextEditingController();
-
-  String get _welcomeMessage {
-    switch (Localizations.localeOf(context).languageCode) {
-      case 'ru':
-        return 'Добро пожаловать в приложение!';
-      case 'kk':
-        return 'Қосымшаға қош келдіңіз!';
-      default:
-        return 'Welcome to Notes App!';
-    }
-  }
-
-  String get _appTitle {
-    switch (Localizations.localeOf(context).languageCode) {
-      case 'ru':
-        return 'Мои заметки';
-      case 'kk':
-        return 'Менің жазбаларым';
-      default:
-        return 'My Notes';
-    }
-  }
-
-  void _addNote() {
-    final note = _noteController.text.trim();
-    if (note.isNotEmpty) {
-      setState(() {
-        _notes.add(note);
-        _noteController.clear();
-      });
-    }
-  }
-
-  void _showLanguageDialog() {
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Select Language'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _LanguageOption(
-                  locale: const Locale('en', 'US'),
-                  language: 'English',
-                  flag: '🇬🇧',
-                  onSelected: widget.onLanguageChange,
-                ),
-                _LanguageOption(
-                  locale: const Locale('ru', 'RU'),
-                  language: 'Русский',
-                  flag: '🇷🇺',
-                  onSelected: widget.onLanguageChange,
-                ),
-                _LanguageOption(
-                  locale: const Locale('kk', 'KZ'),
-                  language: 'Қазақша',
-                  flag: '🇰🇿',
-                  onSelected: widget.onLanguageChange,
-                ),
-              ],
-            ),
-          ),
-    );
-  }
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+  final FirestoreService _firestore = FirestoreService();
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
+    final screens = [
+      NotesScreen(),
+      SettingsScreen(
+        onThemeChanged: widget.onThemeChanged,
+        onLocaleChanged: widget.onLocaleChanged,
+        themeMode: widget.themeMode,
+        locale: widget.locale,
+        themeColor: widget.themeColor,
+        onThemeColorChanged: widget.onThemeColorChanged,
+      ),
+      ProfileScreen(),
+    ];
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_appTitle),
-        centerTitle: true,
-        backgroundColor: colorScheme.primary,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.language),
-            onPressed: _showLanguageDialog,
-            tooltip: 'Select Language',
-          ),
-          IconButton(
-            icon: const Icon(Icons.brightness_6),
-            onPressed: widget.onThemeToggle,
-            tooltip: 'Toggle Theme',
-          ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            if (_showWelcomeMessage)
-              GestureDetector(
-                onLongPress: () => setState(() => _showWelcomeMessage = false),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: colorScheme.primary.withOpacity(0.2),
-                    ),
-                  ),
-                  child: Text(
-                    _welcomeMessage,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: colorScheme.onBackground,
-                    ),
-                  ),
-                ),
-              ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _noteController,
-              decoration: InputDecoration(
-                labelText: 'Add a new note...',
-                hintText: 'Write something important...',
-                suffixIcon: IconButton(
-                  icon: Icon(Icons.send, color: colorScheme.primary),
-                  onPressed: _addNote,
-                ),
-              ),
-              minLines: 1,
-              maxLines: 3,
-              onSubmitted: (_) => _addNote(),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Your Notes',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onBackground,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Expanded(
-              child:
-                  _notes.isEmpty
-                      ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.note_add_outlined,
-                              size: 64,
-                              color: colorScheme.onBackground.withOpacity(0.3),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No notes yet',
-                              style: TextStyle(
-                                fontSize: 18,
-                                color: colorScheme.onBackground.withOpacity(
-                                  0.5,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                      : ListView.builder(
-                        itemCount: _notes.length,
-                        itemBuilder:
-                            (context, index) => Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _notes[index],
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          '${index + 1}',
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        const Spacer(),
-                                        IconButton(
-                                          icon: Icon(
-                                            Icons.delete,
-                                            color: Colors.red[400],
-                                          ),
-                                          onPressed:
-                                              () => setState(
-                                                () => _notes.removeAt(index),
-                                              ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                      ),
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          showDialog(
-            context: context,
-            builder:
-                (_) => AlertDialog(
-                  title: const Text('Add New Note'),
-                  content: TextField(
-                    controller: _noteController,
-                    maxLines: 5,
-                    decoration: const InputDecoration(
-                      hintText: 'Write your note here...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        _addNote();
-                        Navigator.pop(context);
-                      },
-                      child: const Text('Add'),
-                    ),
-                  ],
-                ),
-          );
+      body: StreamBuilder<List<Note>>(
+        stream: _firestore.getNotes(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return Center(child: CircularProgressIndicator());
+          return screens[_selectedIndex];
         },
-        child: const Icon(Icons.add),
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: (index) => setState(() => _selectedIndex = index),
+        items: [
+          BottomNavigationBarItem(icon: Icon(Icons.note), label: l10n?.notes ?? 'Notes'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: l10n?.settings ?? 'Settings'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: l10n?.profile ?? 'Profile'),
+        ],
       ),
     );
   }
 }
 
-class _LanguageOption extends StatelessWidget {
-  final Locale locale;
-  final String language;
-  final String flag;
-  final Function(Locale) onSelected;
+// ... Остальной код MainScreen, NotesScreen, PubspecAssist (который, видимо, должен быть NotebookScreen)
 
-  const _LanguageOption({
+// ИСПРАВЛЕНИЕ settings_screen.dart (важно!)
+// Вам нужно будет открыть lib/screens/settings_screen.dart
+// и изменить там import и использование AppLocalizations на AppLocalizations.
+
+/*
+// Вот как должен выглядеть settings_screen.dart после исправлений
+import 'package:flutter/material.dart';
+import 'package:new_app/generated/l10n.dart'; // <--- Правильный импорт
+
+class SettingsScreen extends StatelessWidget {
+  final void Function(ThemeMode) onThemeChanged;
+  final void Function(Locale) onLocaleChanged;
+  final ThemeMode themeMode;
+  final Locale locale;
+
+  const SettingsScreen({
+    super.key,
+    required this.onThemeChanged,
+    required this.onLocaleChanged,
+    required this.themeMode,
     required this.locale,
-    required this.language,
-    required this.flag,
-    required this.onSelected,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Text(flag, style: const TextStyle(fontSize: 24)),
-      title: Text(language),
-      onTap: () {
-        onSelected(locale);
-        Navigator.of(context).pop();
-      },
+    final l10n = AppLocalizations.of(context)!; // <--- ИСПОЛЬЗУЕМ AppLocalizations.of(context)!
+
+    return Scaffold(
+      appBar: AppBar(title: Text(l10n.settingsTitle)), // Пример использования
+      body: Center(
+        child: Column(
+          children: [
+            Text(l10n.settingsPlaceholder), // Пример использования
+            // ... остальной код настроек
+          ],
+        ),
+      ),
     );
   }
 }
+```
+*/
